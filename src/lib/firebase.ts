@@ -1,10 +1,20 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+
+// Retrieve the Firebase configuration from the build-time injected definition or safe placeholder
+const firebaseConfig = (process.env.FIREBASE_CONFIG as any) || {
+  apiKey: "AIzaSyFakeKeyPlaceholderForBuildSafety",
+  authDomain: "naftech-media-kit.firebaseapp.com",
+  projectId: "naftech-media-kit",
+  storageBucket: "naftech-media-kit.appspot.com",
+  messagingSenderId: "123456789012",
+  appId: "1:123456789012:web:abcdef123456",
+  firestoreDatabaseId: "(default)"
+};
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || "(default)");
 export const auth = getAuth();
 
 export enum OperationType {
