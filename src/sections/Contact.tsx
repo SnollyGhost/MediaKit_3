@@ -59,24 +59,29 @@ export const Contact = ({ selectedPackage }: ContactProps) => {
         preferredMethod: formData.preferredMethod
       };
 
-      // 1. Save to Firestore
+      // 1. Save to Firestore (with 3.5s timeout and automatic fallback)
+      let savedToFirestore = false;
       try {
-        await addDoc(collection(db, 'inquiries'), {
+        const firestorePromise = addDoc(collection(db, 'inquiries'), {
           ...sanitizedData,
           status: 'pending',
           createdAt: serverTimestamp()
+        }).then(() => {
+          savedToFirestore = true;
+          console.log('Inquiry saved to Firestore successfully.');
         });
-        console.log('Inquiry saved to Firestore successfully.');
+
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Firestore operation timed out after 3.5 seconds.')), 3500)
+        );
+
+        await Promise.race([firestorePromise, timeoutPromise]);
       } catch (dbError: any) {
-        console.error('Firestore Error:', dbError);
-        // If we get a permission error, it's likely the rules or auth
-        const isPermissionError = dbError?.code === 'permission-denied' || dbError?.message?.includes('permission');
-        throw new Error(isPermissionError 
-          ? 'Database access denied. Please ensure Firestore rules are deployed.' 
-          : 'Database connection failed. Please contact ' + BUSINESS_EMAIL);
+        console.warn('Firestore Error/Timeout: Proceeding to fallback email notification.', dbError);
       }
 
       // 2. Trigger Email Notification via Backend
+      let notifiedViaEmail = false;
       try {
         const response = await fetch('/api/notify', {
           method: 'POST',
@@ -84,19 +89,21 @@ export const Contact = ({ selectedPackage }: ContactProps) => {
           body: JSON.stringify(sanitizedData)
         });
         
-        const responseData = await response.json();
+        const responseData = await response.json().catch(() => ({}));
         
-        if (!response.ok) {
-          console.warn('Notification service error:', responseData);
-          // We don't block success UI because Firestore worked, but we log the hint
-          if (responseData.hint) {
-            console.info('Tip for fixing email:', responseData.hint);
-          }
-        } else {
+        if (response.ok) {
+          notifiedViaEmail = true;
           console.log('Notification email triggered successfully.');
+        } else {
+          console.warn('Notification service error:', responseData);
         }
       } catch (notifyError) {
-        console.warn('Notification service unreachable. Data was saved to Firestore, but email might not have been sent.', notifyError);
+        console.warn('Notification service unreachable.', notifyError);
+      }
+
+      // If both channels failed, notify user
+      if (!savedToFirestore && !notifiedViaEmail) {
+        throw new Error('Transmission failed. Both the database and notification channels are offline. Please reach out directly via Telegram, WhatsApp, or ' + BUSINESS_EMAIL);
       }
 
       setStatus('success');
